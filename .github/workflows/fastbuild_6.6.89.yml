@@ -100,7 +100,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: 安装环境依赖+初始化源码仓库及llvm-Clang19工具链
+      - name: 安装环境依赖+初始化源码仓库及Clang工具链
         run: |
           set -e
           rm -rf kernel_workspace
@@ -119,18 +119,18 @@ jobs:
           echo "正在克隆 crDroid 源码仓库 (16.0分支)..."
           git clone --depth=1 -b 16.0 https://github.com/crdroidandroid/android_kernel_oneplus_sm8750.git common
           
-          echo "正在下载 ZyC-Clang 19 工具链..."
+          echo "正在下载官方 Clang 18 工具链 (r510928)..."
           mkdir -p clang-aosp
-          aria2c -s16 -x16 -k1M https://github.com/ZyC-X/zyc-clang/releases/download/v19.1.7-20250123-release/ZyC-Clang-19.1.7-20250123-x86_64-unknown-linux-gnu.tar.gz -o clang.tar.gz
-          tar -xzf clang.tar.gz -C clang-aosp
-          rm -rf clang.tar.gz
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip -o clang.zip
+          unzip -q clang.zip -d clang-aosp
+          rm -rf clang.zip
           
           echo "正在克隆构建工具..."
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/build-tools.zip -o build-tools.zip
           unzip -q build-tools.zip
           rm -rf build-tools.zip
           
-          echo "所有源码及Clang19工具链初始化完成！"
+          echo "所有源码及Clang18工具链初始化完成！"
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
           for f in common/scripts/setlocalversion; do
@@ -394,7 +394,6 @@ jobs:
           export FAKETIME="@2025-05-25 13:00:00"
           SO_DIR=$(pwd)
           
-          # 仅在下载成功时使用包装器
           if [[ -f "$SO_DIR/libfakestat.so" && -f "$SO_DIR/libfaketimeMT.so" ]]; then
             export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
             echo '#!/bin/bash' > cc-wrapper
@@ -417,14 +416,11 @@ jobs:
             export LD_CMD="ld.lld"
           fi
           
-          # 清除不再需要的构建系统缓存 (放回前台执行，确保稳定)
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           
           echo "--- 开始编译 ---"
-          # 配置 Defconfig
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$CC_CMD" LD="$LD_CMD" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig
           
-          # 核心修改：移除末尾强制生成的 Image 目标，改用默认目标，以确保 crdroid 中指定的默认压缩格式能正确生成
           make -j$(nproc --all) LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$CC_CMD" LD="$LD_CMD" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error
           
           echo "内核编译完成！"
@@ -442,12 +438,10 @@ jobs:
           if [[ ${{ github.event.inputs.kpm_enable }} == 'builtin' && ( "${{ github.event.inputs.ksu_type }}" == "sukisu" || "${{ github.event.inputs.ksu_type }}" == "resukisu" ) ]]; then
             echo "正在应用KPM并修补内核..."
             cd kernel_workspace/common/out/arch/arm64/boot
-            # 自动探测内核镜像名字（兼容 Image.gz 等变体）
             TARGET_IMG=$(find . -maxdepth 1 -name "Image*" -type f | head -n 1)
             if [[ -n "$TARGET_IMG" ]]; then
               curl -LO https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest/download/patch_linux
               chmod +x patch_linux
-              # 为了让 patch_linux 认出，临时重命名为 Image 处理
               mv "$TARGET_IMG" ./Image
               ./patch_linux || true
               if [[ -f oImage ]]; then
@@ -467,7 +461,6 @@ jobs:
           rm -rf ./AnyKernel3/.git
           cd AnyKernel3
           
-          # 核心修复：自动匹配目录中的 Image / Image.gz / Image.lz4 并复制过来改名为 Image 供 AK3 使用
           IMAGE_FILE=$(find ../common/out/arch/arm64/boot/ -maxdepth 1 -name "Image*" -type f | head -n 1)
           
           if [[ -z "$IMAGE_FILE" ]]; then
@@ -576,7 +569,7 @@ jobs:
             - 编译时间: ${{ env.TIME_FORM }}
             - 机型：欧加真骁龙8Elite通用 6.6.89 内核（基于 crDroid 16.0 源码）
             - 特性：${{ env.KSU_TYPENAME }} + 风驰内核
-            - 工具链适配：ZyC-Clang 19.1.7 (深度优化 LLVM/LLD 编译)
+            - 工具链适配：官方 Clang 18.x (r510928) 配合 LLVM_IAS 深度优化编译
             - susfs支持：${{ github.event.inputs.susfs_enable }}
             - KPM支持 ：${{ github.event.inputs.kpm_enable }}
             - LZ4支持：${{ github.event.inputs.lz4_enable }}
