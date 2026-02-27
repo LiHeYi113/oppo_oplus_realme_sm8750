@@ -117,7 +117,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev ccache
           
           echo "正在克隆 crDroid 源码仓库 (16.0分支)..."
-          git clone --depth=1 -b 16.0 https://github.com/crdroidandroid/android_kernel_oneplus_sm8750.git common
+          # 增加 --recurse-submodules 自动拉取可能的子模块依赖
+          git clone --depth=1 --recurse-submodules -b 16.0 https://github.com/crdroidandroid/android_kernel_oneplus_sm8750.git common
+          
+          echo "检查并修复 Oplus 特有的外部模块引用..."
+          if [ ! -f "common/drivers/base/kernelFwUpdate/Kconfig" ]; then
+            echo "未找到 kernelFwUpdate 模块，正在从 Kconfig 中剥离该依赖以绕过报错..."
+            sed -i '/kernelFwUpdate/d' common/drivers/base/Kconfig || true
+          fi
+          # 如果未来还有类似的报错，也可以像上面一样直接 sed 删除或者 touch 创建空文件
           
           echo "正在下载官方 Clang 18 工具链 (r510928)..."
           mkdir -p clang-aosp
